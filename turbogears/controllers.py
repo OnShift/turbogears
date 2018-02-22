@@ -354,7 +354,7 @@ def expose(template=None, validators=None, allow_json=None, html=None,
                                 *args, **kw)
                 else:
                     request.in_transaction = True
-                    output = profile_expose_method(_profiled_method_wrapper, accept, args, func, kw)
+                    output = profile_expose_method(_run_with_transaction, accept, args, func, kw)
                 return output
             func.exposed = True
             func._ruleinfo = []
@@ -385,7 +385,7 @@ def expose(template=None, validators=None, allow_json=None, html=None,
     return weak_signature_decorator(entangle)
 
 
-def _profiled_method_wrapper(accept, args, func, kw):
+def _run_with_transaction(accept, args, func, kw):
     return database.run_with_transaction(
              func._expose, func, accept, func._allow_json,
              *args, **kw)

@@ -8,6 +8,14 @@ import tempfile
 from fluent import handler
 from memory_profiler import memory_usage
 
+# memory profiler system configuration
+FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
+_fluentd_port_str = os.environ.get('FLUENTD_PORT', '24224')
+FLUENTD_PORT = int(_fluentd_port_str) if _fluentd_port_str.isdigit() else 24224
+TURBOGEARS_PROFILER_FIFO_PATH = os.environ.get('TURBOGEARS_PROFILER_FIFO_PATH',
+                                               tempfile.gettempdir()+'/turbogears_memory_config_fifo')
+TURBOGEARS_PROFILER_LOG_TO_CONSOLE = os.environ.get('TURBOGEARS_PROFILER_LOG_TO_CONSOLE', 'False') == 'True'
+
 # setup thread log handler to monitor state of memory profile logging
 thread_log = logging.getLogger("memory_profiler_thread_log")
 thread_log_hdlr = logging.StreamHandler(sys.stdout)
@@ -17,16 +25,17 @@ thread_log.setLevel(logging.INFO)
 
 # set up memory profiler log handler to feed memory profiler output into fluentd
 memory_log = logging.getLogger("memory_profiler")
-mem_out_hdlr = logging.StreamHandler(sys.stdout)
-mem_out_hdlr.setLevel(logging.INFO)
-memory_log.addHandler(mem_out_hdlr)
+if TURBOGEARS_PROFILER_LOG_TO_CONSOLE:
+    mem_out_hdlr = logging.StreamHandler(sys.stdout)
+    mem_out_hdlr.setLevel(logging.INFO)
+    memory_log.addHandler(mem_out_hdlr)
 
 fluentd_format = {
-    'hostename': '%(hostname)s',
+    'hostname': '%(hostname)s',
     'where': '%(controller_module)s.%(controller_class)s.%(endpoint)s'
 }
 
-mem_fluent_hdlr = handler.FluentHandler('bazman.memory_profiler', host='fluentd', port=24224)
+mem_fluent_hdlr = handler.FluentHandler('turbogears.memory_profiler', host=FLUENTD_HOST_NAME, port=FLUENTD_PORT)
 mem_fluentd_formatter = handler.FluentRecordFormatter(fluentd_format)
 mem_fluent_hdlr.setFormatter(mem_fluentd_formatter)
 mem_fluent_hdlr.setLevel(logging.INFO)
@@ -34,17 +43,22 @@ memory_log.addHandler(mem_fluent_hdlr)
 
 memory_log.setLevel(logging.INFO)
 
+thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME='+FLUENTD_HOST_NAME +
+                ' FLUENTD_PORT='+str(FLUENTD_PORT) + ' TURBOGEARS_PROFILER_FIFO_PATH=' +
+                TURBOGEARS_PROFILER_FIFO_PATH + ' TURBOGEARS_PROFILER_LOG_TO_CONSOLE=' +
+                str(TURBOGEARS_PROFILER_LOG_TO_CONSOLE))
+
 
 def toggle_memory_profile_via_fifo(_thread_log):
     """
-    execution body of a thread that monitors any input on a named pipe located at /tmp/bazman_memory_config_fifo.
+    execution body of a thread that monitors any input on a named pipe located at /tmp/turbogears_memory_config_fifo.
     Whenever any value with a new line is pushed into the FIFO the thread will trigger the toggle of an environment
     variable and turn memory profiling ON or OFF
     :param _thread_log: console logger
     :return: 
     """
     _thread_log.info('started toggle_memory_profile_via_fifo thread PID(' + str(os.getpid()) + ')')
-    fifo_name = tempfile.gettempdir()+'/bazman_memory_config_fifo'
+    fifo_name = TURBOGEARS_PROFILER_FIFO_PATH
     if not os.path.exists(fifo_name):
         os.mkfifo(fifo_name)
     while True:
