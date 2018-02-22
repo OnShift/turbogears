@@ -19,7 +19,6 @@ from memory_profiler_setup import profile_expose_method
 
 log = logging.getLogger("turbogears.controllers")
 
-
 if config.get("session_filter.on", None):
     if config.get("session_filter.storage_type", None) == "PostgreSQL":
         import psycopg2
@@ -355,7 +354,7 @@ def expose(template=None, validators=None, allow_json=None, html=None,
                                 *args, **kw)
                 else:
                     request.in_transaction = True
-                    output = profile_expose_method(_pass_through_expose_method, _profile_me, accept, args, func, kw)
+                    output = profile_expose_method(_profiled_method_wrapper, accept, args, func, kw)
                 return output
             func.exposed = True
             func._ruleinfo = []
@@ -386,16 +385,10 @@ def expose(template=None, validators=None, allow_json=None, html=None,
     return weak_signature_decorator(entangle)
 
 
-def _pass_through_expose_method(accept, args, func, kw):
+def _profiled_method_wrapper(accept, args, func, kw):
     return database.run_with_transaction(
              func._expose, func, accept, func._allow_json,
              *args, **kw)
-
-
-def _profile_me(_output, _func, _accept, _args, _kwargs):
-    _output['output'] = database.run_with_transaction(
-        _func._expose, _func, _accept, _func._allow_json,
-        *_args, **_kwargs)
 
 
 def _execute_func(func, template, format, content_type, mapping, fragment, args, kw):
