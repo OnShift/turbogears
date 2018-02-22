@@ -15,10 +15,9 @@ from turbogears import view, database, errorhandling, config
 from turbogears.decorator import weak_signature_decorator
 from turbogears.validators import Invalid
 from turbogears.errorhandling import error_handler, exception_handler
-
+from memory_profiler_setup import profile_expose_method
 
 log = logging.getLogger("turbogears.controllers")
-
 
 if config.get("session_filter.on", None):
     if config.get("session_filter.storage_type", None) == "PostgreSQL":
@@ -355,9 +354,7 @@ def expose(template=None, validators=None, allow_json=None, html=None,
                                 *args, **kw)
                 else:
                     request.in_transaction = True
-                    output = database.run_with_transaction(
-                            func._expose, func, accept, func._allow_json,
-                            *args, **kw)
+                    output = profile_expose_method(_run_with_transaction, accept, args, func, kw)
                 return output
             func.exposed = True
             func._ruleinfo = []
@@ -386,6 +383,12 @@ def expose(template=None, validators=None, allow_json=None, html=None,
 
         return expose
     return weak_signature_decorator(entangle)
+
+
+def _run_with_transaction(accept, args, func, kw):
+    return database.run_with_transaction(
+             func._expose, func, accept, func._allow_json,
+             *args, **kw)
 
 
 def _execute_func(func, template, format, content_type, mapping, fragment, args, kw):
