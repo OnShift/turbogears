@@ -13,7 +13,7 @@ FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
 _fluentd_port_str = os.environ.get('FLUENTD_PORT', '24224')
 FLUENTD_PORT = int(_fluentd_port_str) if _fluentd_port_str.isdigit() else 24224
 TURBOGEARS_PROFILER_FIFO_PATH = os.environ.get('TURBOGEARS_PROFILER_FIFO_PATH',
-                                               tempfile.gettempdir()+'/turbogears_memory_config_fifo')
+                                               '{}/turbogears_memory_config_fifo'.format(tempfile.gettempdir()))
 TURBOGEARS_PROFILER_LOG_TO_CONSOLE = os.environ.get('TURBOGEARS_PROFILER_LOG_TO_CONSOLE', 'False') == 'True'
 
 # setup thread log handler to monitor state of memory profile logging
@@ -43,10 +43,12 @@ memory_log.addHandler(mem_fluent_hdlr)
 
 memory_log.setLevel(logging.INFO)
 
-thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME='+FLUENTD_HOST_NAME +
-                ' FLUENTD_PORT='+str(FLUENTD_PORT) + ' TURBOGEARS_PROFILER_FIFO_PATH=' +
-                TURBOGEARS_PROFILER_FIFO_PATH + ' TURBOGEARS_PROFILER_LOG_TO_CONSOLE=' +
-                str(TURBOGEARS_PROFILER_LOG_TO_CONSOLE))
+thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME={} FLUENTD_PORT={} '
+                'TURBOGEARS_PROFILER_FIFO_PATH={} '
+                'TURBOGEARS_PROFILER_LOG_TO_CONSOLE={}'.format(FLUENTD_HOST_NAME,FLUENTD_PORT,
+                                                               TURBOGEARS_PROFILER_FIFO_PATH,
+                                                               TURBOGEARS_PROFILER_LOG_TO_CONSOLE)
+                )
 
 
 def toggle_memory_profile_via_fifo(_thread_log):
@@ -57,7 +59,7 @@ def toggle_memory_profile_via_fifo(_thread_log):
     :param _thread_log: console logger
     :return: 
     """
-    _thread_log.info('started toggle_memory_profile_via_fifo thread PID(' + str(os.getpid()) + ')')
+    _thread_log.info('started toggle_memory_profile_via_fifo thread PID({})'.format(os.getpid()))
     fifo_name = TURBOGEARS_PROFILER_FIFO_PATH
     if not os.path.exists(fifo_name):
         os.mkfifo(fifo_name)
@@ -65,14 +67,14 @@ def toggle_memory_profile_via_fifo(_thread_log):
         with open(fifo_name, 'r') as config_fifo:
             _thread_log.info('opened FIFO toggle_memory_profile_via_fifo thread')
             line = config_fifo.readline()[:-1]
-            _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>' + line)
+            _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}'.format(line))
             toggle_memory_profile_logging(_thread_log)
 
 
 def create_config_thread(_thread_log):
     # start configuration pipe monitoring thread on import
     _config_thread = threading.Thread(target=toggle_memory_profile_via_fifo, args=(_thread_log,),
-                                     name='toggle_memory_profile_via_fifo')
+                                      name='toggle_memory_profile_via_fifo')
     _config_thread.setDaemon(True)
     _config_thread.start()
     return _config_thread
@@ -99,7 +101,7 @@ def toggle_memory_profile_logging(_thread_log):
     """
     memory_profile_logging_on = get_memory_profile_logging_on()
     os.environ['MEMORY_PROFILE_LOGGING_ON'] = str(not memory_profile_logging_on)
-    _thread_log.info(' SET MEMORY_PROFILE_LOGGING_ON = ' + str(not memory_profile_logging_on))
+    _thread_log.info(' SET MEMORY_PROFILE_LOGGING_ON={}'.format(not memory_profile_logging_on))
 
 
 def profile_expose_method(profiled_method_wrapper, accept, args, func, kw):
@@ -137,7 +139,7 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw):
                                    'controller_class': controller_class,
                                    'endpoint': func.__name__})
         except Exception as e:
-            thread_log.exception("failed to log memory profile for " + func.__name__)
+            thread_log.exception("failed to log memory profile for {}".foramt(func.__name__))
     else:
         output = profiled_method_wrapper(accept, args, func, kw)
     return output
