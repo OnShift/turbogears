@@ -7,11 +7,11 @@ import os
 
 if sys.version_info < (2, 3):
     raise SystemExit("TurboGears 1.0 requires Python 2.3 or later.")
-elif sys.version_info >= (2, 6):
+elif sys.version_info >= (2, 7):
     # The main problem here is RuleDispatch.
     # TurboGears 1.1 uses PEAK-Rules instead.
     import warnings
-    warnings.warn("TurboGears 1.0 does not support Python 2.6 or later."
+    warnings.warn("TurboGears 1.0.11.2 does not support Python 2.7 or later."
         "\nYou should upgrade to TurboGears 1.1 or later.")
 
 # import meta data (version, author etc.)
@@ -32,6 +32,7 @@ install_requires = [
     # TurboJson >= 1.2 uses PEAK-Rules
     "TurboJson >= 1.3.2",
     "TurboKid >= 1.0.5",
+    "memory_profiler >= 0.52.0"
 ]
 
 exp = ["TGFastData"]
