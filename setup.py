@@ -32,7 +32,8 @@ install_requires = [
     # TurboJson >= 1.2 uses PEAK-Rules
     "TurboJson >= 1.3.2",
     "TurboKid >= 1.0.5",
-    "memory_profiler >= 0.52.0"
+    "memory_profiler >= 0.52.0",
+    "fluent-logger >=0.4.4"
 ]
 
 exp = ["TGFastData"]
