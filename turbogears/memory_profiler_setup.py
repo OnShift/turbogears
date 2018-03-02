@@ -139,7 +139,7 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw):
                                    'controller_class': controller_class,
                                    'endpoint': func.__name__})
         except Exception as e:
-            thread_log.exception("failed to log memory profile for {}".foramt(func.__name__))
+            thread_log.exception('Logger failed: {}'.format(e))
     else:
         output = profiled_method_wrapper(accept, args, func, kw)
     return output
