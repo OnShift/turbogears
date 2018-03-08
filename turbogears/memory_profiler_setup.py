@@ -104,7 +104,7 @@ def toggle_memory_profile_logging(_thread_log):
     _thread_log.info(' SET MEMORY_PROFILE_LOGGING_ON={}'.format(not memory_profile_logging_on))
 
 
-def profile_expose_method(profiled_method_wrapper, accept, args, func, kw):
+def profile_expose_method(profiled_method_wrapper, accept, args, func, kw, exclude_from_memory_profiling):
     """
     Targeted to profile a specific method that wraps HTTP request processing endpoints into database context.  
     :param profiled_method_wrapper: method wrapped around profiled call to be passed in to memory profiler
@@ -114,7 +114,7 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw):
     :param kw: kwargs of a function that is being wrapped by a profiled method
     :return: output of a profiled method without modification
     """
-    if get_memory_profile_logging_on():
+    if not exclude_from_memory_profiling and get_memory_profile_logging_on():
         profile_output = {'output': {}}
         memory_profile = memory_usage((_profile_me,
                                        (profile_output, profiled_method_wrapper, func, accept, args, kw),

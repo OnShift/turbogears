@@ -259,7 +259,8 @@ def _build_rules(func):
 
 def expose(template=None, validators=None, allow_json=None, html=None,
            format=None, content_type=None, inputform=None, fragment=False,
-           as_format="default", mapping=None, accept_format=None):
+           as_format="default", mapping=None, accept_format=None,
+           exclude_from_memory_profiling=False):
     """Exposes a method to the web.
 
     By putting the expose decorator on a method, you tell TurboGears that
@@ -324,7 +325,8 @@ def expose(template=None, validators=None, allow_json=None, html=None,
             applied to that arg
     @keyparam inputform deprecated. A form object that generates the
             input to this method
-
+    @keyparam exclude_from_memory_profiling allows to exclude individual end points from memory profiling. Can be 
+            used for performance or in case profiling generates errors
     """
     if html:
         template = html
@@ -354,7 +356,8 @@ def expose(template=None, validators=None, allow_json=None, html=None,
                                 *args, **kw)
                 else:
                     request.in_transaction = True
-                    output = profile_expose_method(_run_with_transaction, accept, args, func, kw)
+                    output = profile_expose_method(_run_with_transaction, accept, args, func, kw,
+                                                   exclude_from_memory_profiling)
                 return output
             func.exposed = True
             func._ruleinfo = []
