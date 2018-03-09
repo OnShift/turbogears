@@ -93,6 +93,23 @@ def get_memory_profile_logging_on():
     return os.environ.get('MEMORY_PROFILE_LOGGING_ON', 'False') == 'True'
 
 
+def check_memory_profile_package_wide_disable(func):
+    """
+    Take a passed in function traverse to the package and check if it imports or contains
+    a variable named IMPORT_THIS_TO_EXCLUDE_PACKAGE_FROM_MEMORY_PROFILING
+    :param func: a function that is the base for package content search
+    :return: True if variable is not declared or imported, False if it is included or imported or
+            fetching the variable caused an exception
+    """
+    try:
+        allowed = 'IMPORT_THIS_TO_EXCLUDE_PACKAGE_FROM_MEMORY_PROFILING' not in \
+                   dir(sys.modules[".".join(func.__module__.split('.')[:-1])])
+        return allowed
+    except Exception as exp:
+        thread_log.exception('TURBOGEARS: Failed check_memory_profile_package_wide_disable')
+        return False
+
+
 def toggle_memory_profile_logging(_thread_log):
     """
     Toggles and logs to console the environment variable that enables memory profiling 
@@ -114,7 +131,8 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw, exclu
     :param kw: kwargs of a function that is being wrapped by a profiled method
     :return: output of a profiled method without modification
     """
-    if not exclude_from_memory_profiling and get_memory_profile_logging_on():
+    if not exclude_from_memory_profiling and get_memory_profile_logging_on() and \
+            check_memory_profile_package_wide_disable(func):
         profile_output = {'output': {}}
         memory_profile = memory_usage((_profile_me,
                                        (profile_output, profiled_method_wrapper, func, accept, args, kw),

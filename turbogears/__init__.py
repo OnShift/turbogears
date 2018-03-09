@@ -32,6 +32,7 @@ for entrypoint in extensions:
 
 i18n.install() # adds _ (gettext) to builtins namespace
 
+IMPORT_THIS_TO_EXCLUDE_PACKAGE_FROM_MEMORY_PROFILING = True
 
 __all__ = ["url", "expose", "redirect", "validate", "flash",
            "error_handler", "exception_handler",
