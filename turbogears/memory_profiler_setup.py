@@ -1,5 +1,4 @@
 import logging
-import signal
 import os
 import sys
 import json
@@ -7,13 +6,22 @@ import threading
 import tempfile
 from fluent import handler
 from memory_profiler import memory_usage
+from enum import Enum
+
+
+class MemoryProfilerState(Enum):
+    UNKNOWN = (-1, '', None)
+    OFF = (0, 'off', False)
+    ON = (1, 'on', True)
+    ECHO = (2, 'echo', None)
 
 # memory profiler system configuration
 FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
 _fluentd_port_str = os.environ.get('FLUENTD_PORT', '24224')
 FLUENTD_PORT = int(_fluentd_port_str) if _fluentd_port_str.isdigit() else 24224
 TURBOGEARS_PROFILER_FIFO_PATH = os.environ.get('TURBOGEARS_PROFILER_FIFO_PATH',
-                                               '{}/turbogears_memory_config_fifo'.format(tempfile.gettempdir()))
+                                               '{}/turbogears_memory_profiler'.format(tempfile.gettempdir()))
+TURBOGEARS_PROFILER_FIFO_NAME = os.environ.get('TURBOGEARS_PROFILER_FIFO_NAME', 'turbogears_memory_config_fifo_{}')
 TURBOGEARS_PROFILER_LOG_TO_CONSOLE = os.environ.get('TURBOGEARS_PROFILER_LOG_TO_CONSOLE', 'False') == 'True'
 
 # setup thread log handler to monitor state of memory profile logging
@@ -45,30 +53,51 @@ memory_log.setLevel(logging.INFO)
 
 thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME={} FLUENTD_PORT={} '
                 'TURBOGEARS_PROFILER_FIFO_PATH={} '
+                'TURBOGEARS_PROFILER_FIFO_NAME={} '
                 'TURBOGEARS_PROFILER_LOG_TO_CONSOLE={}'.format(FLUENTD_HOST_NAME,FLUENTD_PORT,
                                                                TURBOGEARS_PROFILER_FIFO_PATH,
+                                                               TURBOGEARS_PROFILER_FIFO_NAME,
                                                                TURBOGEARS_PROFILER_LOG_TO_CONSOLE)
                 )
 
 
 def toggle_memory_profile_via_fifo(_thread_log):
     """
-    execution body of a thread that monitors any input on a named pipe located at /tmp/turbogears_memory_config_fifo.
-    Whenever any value with a new line is pushed into the FIFO the thread will trigger the toggle of an environment
-    variable and turn memory profiling ON or OFF
+    Execution body of a thread that monitors any input on a named pipe located at 
+    /tmp/turbogears_memory_profiler/turbogears_memory_config_fifo_{pid}.
+    Accepts string value of 'ON', 'OFF' or 'ECHO' with new line via named pipe. 'ON' turns on memory profiling , 
+    'OFF' turns off memory profiling, 'ECHO' publishes current value of the variable to the log
     :param _thread_log: console logger
     :return: 
     """
     _thread_log.info('started toggle_memory_profile_via_fifo thread PID({})'.format(os.getpid()))
-    fifo_name = TURBOGEARS_PROFILER_FIFO_PATH
+    fifo_path = TURBOGEARS_PROFILER_FIFO_PATH
+    if not os.path.exists(TURBOGEARS_PROFILER_FIFO_PATH):
+        os.mkdir(fifo_path)
+    fifo_name = os.path.join(TURBOGEARS_PROFILER_FIFO_PATH, TURBOGEARS_PROFILER_FIFO_NAME.format(os.getpid()))
     if not os.path.exists(fifo_name):
+        _thread_log.info('[{}] creating FIFO {}'.format(os.getpid(), fifo_name))
         os.mkfifo(fifo_name)
     while True:
         with open(fifo_name, 'r') as config_fifo:
-            _thread_log.info('opened FIFO toggle_memory_profile_via_fifo thread')
+            _thread_log.info('opened FIFO {} in toggle_memory_profile_via_fifo thread'.format(fifo_name))
             line = config_fifo.readline()[:-1]
-            _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}'.format(line))
-            toggle_memory_profile_logging(_thread_log)
+            state=_get_state_from_pipe_command(line)
+            _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}, state: {}'.format(line, state.name))
+            if state == MemoryProfilerState.ON or state == MemoryProfilerState.OFF:
+                set_memory_profile_logging(_thread_log, state.value[2])
+            elif state == MemoryProfilerState.ECHO:
+                _thread_log.info('ECHO MEMORY_PROFILE_LOGGING_ON ==> {}'.format(get_memory_profile_logging_on()))
+
+
+def _get_state_from_pipe_command(command):
+    if command.lower() not in [MemoryProfilerState.ON.value[1],
+                               MemoryProfilerState.OFF.value[1],
+                               MemoryProfilerState.ECHO.value[1]]:
+        return MemoryProfilerState.UNKNOWN
+    return {MemoryProfilerState.ON.value[1]: MemoryProfilerState.ON,
+            MemoryProfilerState.OFF.value[1]: MemoryProfilerState.OFF,
+            MemoryProfilerState.ECHO.value[1]: MemoryProfilerState.ECHO}[command.lower()]
 
 
 def create_config_thread(_thread_log):
@@ -110,15 +139,14 @@ def check_memory_profile_package_wide_disable(func):
         return False
 
 
-def toggle_memory_profile_logging(_thread_log):
+def set_memory_profile_logging(_thread_log, value):
     """
-    Toggles and logs to console the environment variable that enables memory profiling 
+    Sets and logs to console the environment variable that enables memory profiling 
     :param _thread_log: console logger
     :return: 
     """
-    memory_profile_logging_on = get_memory_profile_logging_on()
-    os.environ['MEMORY_PROFILE_LOGGING_ON'] = str(not memory_profile_logging_on)
-    _thread_log.info(' SET MEMORY_PROFILE_LOGGING_ON={}'.format(not memory_profile_logging_on))
+    os.environ['MEMORY_PROFILE_LOGGING_ON'] = str(value)
+    _thread_log.info(' SET MEMORY_PROFILE_LOGGING_ON={}'.format(os.environ['MEMORY_PROFILE_LOGGING_ON']))
 
 
 def profile_expose_method(profiled_method_wrapper, accept, args, func, kw, exclude_from_memory_profiling):
