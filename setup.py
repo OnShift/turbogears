@@ -34,7 +34,8 @@ install_requires = [
     "TurboKid >= 1.0.5",
     "memory_profiler >= 0.52.0",
     "fluent-logger >= 0.4.4",
-    "psutil >= 5.4.3"
+    "psutil >= 5.4.3",
+    "Pympler >= 0.5"
 ]
 
 exp = ["TGFastData"]
