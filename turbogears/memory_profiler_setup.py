@@ -6,6 +6,7 @@ import threading
 import tempfile
 from fluent import handler
 from memory_profiler import memory_usage
+from pympler import summary, muppy
 from enum import Enum
 
 
@@ -14,6 +15,7 @@ class MemoryProfilerState(Enum):
     OFF = (0, 'off', False)
     ON = (1, 'on', True)
     ECHO = (2, 'echo', None)
+    PYMPLER = (3, 'pympler', None)
 
 # memory profiler system configuration
 FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
@@ -60,6 +62,26 @@ thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME={} FLUEN
                                                                TURBOGEARS_PROFILER_LOG_TO_CONSOLE)
                 )
 
+pympler_end_points = {}
+
+
+def _is_pympler_profiling_value_on(endpoint_path):
+    if not endpoint_path in pympler_end_points:
+        return False
+    if pympler_end_points[endpoint_path].lower() == 'once':
+        del pympler_end_points[endpoint_path]
+        return True
+    elif pympler_end_points[endpoint_path].lower() == 'on':
+        return True
+    return False
+
+
+def _set_pympler_profiling_value(endpoint_path, value):
+    if value.lower() in ['on', 'once']:
+        pympler_end_points[endpoint_path] = value
+    elif value.lower() == 'off':
+        del pympler_end_points[endpoint_path]
+
 
 def toggle_memory_profile_via_fifo(_thread_log):
     """
@@ -81,23 +103,44 @@ def toggle_memory_profile_via_fifo(_thread_log):
     while True:
         with open(fifo_name, 'r') as config_fifo:
             _thread_log.info('opened FIFO {} in toggle_memory_profile_via_fifo thread'.format(fifo_name))
-            line = config_fifo.readline()[:-1]
-            state=_get_state_from_pipe_command(line)
-            _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}, state: {}'.format(line, state.name))
-            if state == MemoryProfilerState.ON or state == MemoryProfilerState.OFF:
-                set_memory_profile_logging(_thread_log, state.value[2])
-            elif state == MemoryProfilerState.ECHO:
-                _thread_log.info('ECHO MEMORY_PROFILE_LOGGING_ON ==> {}'.format(get_memory_profile_logging_on()))
+            _process_fifo_input(_thread_log, config_fifo)
+
+
+def _process_fifo_input(_thread_log, config_fifo):
+    line = config_fifo.readline()[:-1]
+    state, params = _get_state_from_pipe_command(line)
+    _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}, state: {}'.format(line, state.name))
+    if state == MemoryProfilerState.ON or state == MemoryProfilerState.OFF:
+        set_memory_profile_logging(_thread_log, state.value[2])
+    elif state == MemoryProfilerState.ECHO:
+        _thread_log.info('ECHO MEMORY_PROFILE_LOGGING_ON ==> {}\nPYMPLER endpints: {}'.format(
+            get_memory_profile_logging_on(), pympler_end_points))
+    elif state == MemoryProfilerState.PYMPLER and get_memory_profile_logging_on():
+        _thread_log.info('Setting PYMPLER tracking for {} ==> {}'.format(params['endpoint'],
+                                                                         params['persistence']))
+        _set_pympler_profiling_value(params['endpoint'], params['persistence'])
 
 
 def _get_state_from_pipe_command(command):
-    if command.lower() not in [MemoryProfilerState.ON.value[1],
-                               MemoryProfilerState.OFF.value[1],
-                               MemoryProfilerState.ECHO.value[1]]:
-        return MemoryProfilerState.UNKNOWN
-    return {MemoryProfilerState.ON.value[1]: MemoryProfilerState.ON,
-            MemoryProfilerState.OFF.value[1]: MemoryProfilerState.OFF,
-            MemoryProfilerState.ECHO.value[1]: MemoryProfilerState.ECHO}[command.lower()]
+    command_values = command.split(' ')
+    if command_values[0].lower() not in [MemoryProfilerState.ON.value[1],
+                                         MemoryProfilerState.OFF.value[1],
+                                         MemoryProfilerState.ECHO.value[1],
+                                         MemoryProfilerState.PYMPLER.value[1]]:
+        return MemoryProfilerState.UNKNOWN, None
+    return {MemoryProfilerState.ON.value[1]: (MemoryProfilerState.ON, None),
+            MemoryProfilerState.OFF.value[1]: (MemoryProfilerState.OFF, None),
+            MemoryProfilerState.ECHO.value[1]: (MemoryProfilerState.ECHO, None),
+            MemoryProfilerState.PYMPLER.value[1]: _parse_pympler_command(command_values)
+            }[command_values[0].lower()]
+
+
+def _parse_pympler_command(command_args):
+    if len(command_args) == 3 and command_args[-1].lower() in ['on', 'once', 'off']:
+        return (MemoryProfilerState.PYMPLER, {'endpoint': command_args[1],
+                                              'persistence': command_args[2]})
+    else:
+        return MemoryProfilerState.UNKNOWN, None
 
 
 def create_config_thread(_thread_log):
@@ -161,14 +204,28 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw, exclu
     """
     if not exclude_from_memory_profiling and get_memory_profile_logging_on() and \
             check_memory_profile_package_wide_disable(func):
+        controller_class = args[0].__class__.__name__ if args and len(args) > 0 else ''
+        end_point_name_parts = [s for s in [func.__module__, controller_class, func.__name__] if s != '']
+        is_pympler_on = _is_pympler_profiling_value_on(".".join(end_point_name_parts))
         profile_output = {'output': {}}
+        if is_pympler_on:
+            all_objects = muppy.get_objects()
+            all_objects_summary1 = summary.summarize(all_objects)
         memory_profile = memory_usage((_profile_me,
                                        (profile_output, profiled_method_wrapper, func, accept, args, kw),
                                        {}),
                                       interval=0.1)
         output = profile_output['output']
+        if is_pympler_on:
+            all_objects_summary2 = summary.summarize(all_objects)
+            diff = summary.get_diff(all_objects_summary1, all_objects_summary2)
+            diff_less = summary.format_(diff)
+            diff_out = ''
+            for s in diff_less:
+                diff_out += s+'\n'
+            thread_log.info("================PYMPLER OUTPUT ==============\n{}".format(diff_out))
         try:
-            controller_class = args[0].__class__.__name__ if args and len(args) > 0 else ''
+
             message = json.dumps({'log_type': 'memory_profile',
                                   'proc_id': os.getpid(),
                                   'name': func.__name__,
