@@ -8,14 +8,17 @@ from fluent import handler
 from memory_profiler import memory_usage
 from pympler import summary, muppy
 from enum import Enum
+from collections import namedtuple
+from pympler_setup_helper import _is_pympler_profiling_value_on, _set_pympler_profiling_value, pympler_end_points
 
+MemoryProfilerStateItem = namedtuple('MemoryProfilerStateItem', ['id', 'command', 'profiling_status'])
 
 class MemoryProfilerState(Enum):
-    UNKNOWN = (-1, '', None)
-    OFF = (0, 'off', False)
-    ON = (1, 'on', True)
-    ECHO = (2, 'echo', None)
-    PYMPLER = (3, 'pympler', None)
+    UNKNOWN = MemoryProfilerStateItem(id=-1, command='', profiling_status = None)
+    OFF = MemoryProfilerStateItem(id=0, command='off', profiling_status = False)
+    ON = MemoryProfilerStateItem(id=1, command='on', profiling_status = True)
+    ECHO = MemoryProfilerStateItem(id=2, command='echo', profiling_status = None)
+    PYMPLER = MemoryProfilerStateItem(id=3, command='pympler', profiling_status = None)
 
 # memory profiler system configuration
 FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
@@ -62,25 +65,7 @@ thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME={} FLUEN
                                                                TURBOGEARS_PROFILER_LOG_TO_CONSOLE)
                 )
 
-pympler_end_points = {}
 
-
-def _is_pympler_profiling_value_on(endpoint_path):
-    if not endpoint_path in pympler_end_points:
-        return False
-    if pympler_end_points[endpoint_path].lower() == 'once':
-        del pympler_end_points[endpoint_path]
-        return True
-    elif pympler_end_points[endpoint_path].lower() == 'on':
-        return True
-    return False
-
-
-def _set_pympler_profiling_value(endpoint_path, value):
-    if value.lower() in ['on', 'once']:
-        pympler_end_points[endpoint_path] = value
-    elif value.lower() == 'off':
-        del pympler_end_points[endpoint_path]
 
 
 def toggle_memory_profile_via_fifo(_thread_log):
@@ -107,11 +92,17 @@ def toggle_memory_profile_via_fifo(_thread_log):
 
 
 def _process_fifo_input(_thread_log, config_fifo):
+    """
+    Pulls a command out of configuration FIFO and processes it into proper state and parameters
+    :param _thread_log: console logger
+    :param config_fifo: FIFO that transmits config commands to process
+    :return: None
+    """
     line = config_fifo.readline()[:-1]
     state, params = _get_state_from_pipe_command(line)
     _thread_log.info('READ LINE toggle_memory_profile_via_fifo thread ====>{}, state: {}'.format(line, state.name))
     if state == MemoryProfilerState.ON or state == MemoryProfilerState.OFF:
-        set_memory_profile_logging(_thread_log, state.value[2])
+        set_memory_profile_logging(_thread_log, state.value.profiling_status)
     elif state == MemoryProfilerState.ECHO:
         _thread_log.info('ECHO MEMORY_PROFILE_LOGGING_ON ==> {}\nPYMPLER endpints: {}'.format(
             get_memory_profile_logging_on(), pympler_end_points))
@@ -122,24 +113,38 @@ def _process_fifo_input(_thread_log, config_fifo):
 
 
 def _get_state_from_pipe_command(command):
+    """
+    Process command string received from FIFO and if command is not known set it to UNKNOWN
+    if command matches to command value MemoryProfilerState Enum return that enum with possible additional
+    parameters
+    :param command: string read in from FIFO
+    :return: tuple State, Additional command parameters
+    """
     command_values = command.split(' ')
-    if command_values[0].lower() not in [MemoryProfilerState.ON.value[1],
-                                         MemoryProfilerState.OFF.value[1],
-                                         MemoryProfilerState.ECHO.value[1],
-                                         MemoryProfilerState.PYMPLER.value[1]]:
+    if command_values[0].lower() not in [MemoryProfilerState.ON.value.command,
+                                         MemoryProfilerState.OFF.value.command,
+                                         MemoryProfilerState.ECHO.value.command,
+                                         MemoryProfilerState.PYMPLER.value.command]:
         return MemoryProfilerState.UNKNOWN, None
-    return {MemoryProfilerState.ON.value[1]: (MemoryProfilerState.ON, None),
-            MemoryProfilerState.OFF.value[1]: (MemoryProfilerState.OFF, None),
-            MemoryProfilerState.ECHO.value[1]: (MemoryProfilerState.ECHO, None),
-            MemoryProfilerState.PYMPLER.value[1]: _parse_pympler_command(command_values)
+    return {MemoryProfilerState.ON.value.command: (MemoryProfilerState.ON, None),
+            MemoryProfilerState.OFF.value.command: (MemoryProfilerState.OFF, None),
+            MemoryProfilerState.ECHO.value.command: (MemoryProfilerState.ECHO, None),
+            MemoryProfilerState.PYMPLER.value.command: _parse_pympler_command(command_values)
             }[command_values[0].lower()]
 
 
 def _parse_pympler_command(command_args):
-    if len(command_args) == 3 and command_args[-1].lower() in ['on', 'once', 'off']:
-        return (MemoryProfilerState.PYMPLER, {'endpoint': command_args[1],
-                                              'persistence': command_args[2]})
-    else:
+    """
+    parses special pympler command: extracts end point name and state of the end point 
+    :param command_args: list of strings ['pympler','<python endpoint path>','<command value>']
+    :return: either MemoryProfilerState.PYMPLER and command parameters or UNKNOWN in case of parsing failure
+    """
+    try:
+        if len(command_args) == 3 and command_args[-1].lower() in ['on', 'once', 'off']:
+            return (MemoryProfilerState.PYMPLER, {'endpoint': command_args[1],
+                                                  'persistence': command_args[2]})
+        return MemoryProfilerState.UNKNOWN, None
+    except:
         return MemoryProfilerState.UNKNOWN, None
 
 
@@ -206,24 +211,25 @@ def profile_expose_method(profiled_method_wrapper, accept, args, func, kw, exclu
             check_memory_profile_package_wide_disable(func):
         controller_class = args[0].__class__.__name__ if args and len(args) > 0 else ''
         end_point_name_parts = [s for s in [func.__module__, controller_class, func.__name__] if s != '']
-        is_pympler_on = _is_pympler_profiling_value_on(".".join(end_point_name_parts))
+        end_point_name = ".".join(end_point_name_parts)
+        is_pympler_on = _is_pympler_profiling_value_on(end_point_name)
         profile_output = {'output': {}}
         if is_pympler_on:
             all_objects = muppy.get_objects()
-            all_objects_summary1 = summary.summarize(all_objects)
+            all_objects_summary_before = summary.summarize(all_objects)
         memory_profile = memory_usage((_profile_me,
                                        (profile_output, profiled_method_wrapper, func, accept, args, kw),
                                        {}),
                                       interval=0.1)
         output = profile_output['output']
         if is_pympler_on:
-            all_objects_summary2 = summary.summarize(all_objects)
-            diff = summary.get_diff(all_objects_summary1, all_objects_summary2)
+            all_objects_summary_after = summary.summarize(all_objects)
+            diff = summary.get_diff(all_objects_summary_before, all_objects_summary_after)
             diff_less = summary.format_(diff)
             diff_out = ''
             for s in diff_less:
                 diff_out += s+'\n'
-            thread_log.info("================PYMPLER OUTPUT ==============\n{}".format(diff_out))
+            thread_log.info("================ PYMPLER OUTPUT <{}> ==============\n{}".format(end_point_name, diff_out))
         try:
 
             message = json.dumps({'log_type': 'memory_profile',
