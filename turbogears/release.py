@@ -28,7 +28,7 @@ problem.
     http://svn.turbogears.org/trunk#egg=turbogears-dev
 """
 
-version = "1.0.11.7"
+version = "1.0.11.8"
 description = "Front-to-back, open-source, rapid web development framework"
 long_description = __doc__
 author = "Kevin Dangoor"
