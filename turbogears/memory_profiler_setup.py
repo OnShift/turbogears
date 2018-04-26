@@ -10,15 +10,18 @@ from pympler import summary, muppy
 from enum import Enum
 from collections import namedtuple
 from pympler_setup_helper import _is_pympler_profiling_value_on, _set_pympler_profiling_value, pympler_end_points
+from sqlobject.cache import CacheFactory
 
 MemoryProfilerStateItem = namedtuple('MemoryProfilerStateItem', ['id', 'command', 'profiling_status'])
 
 class MemoryProfilerState(Enum):
-    UNKNOWN = MemoryProfilerStateItem(id=-1, command='', profiling_status = None)
-    OFF = MemoryProfilerStateItem(id=0, command='off', profiling_status = False)
-    ON = MemoryProfilerStateItem(id=1, command='on', profiling_status = True)
-    ECHO = MemoryProfilerStateItem(id=2, command='echo', profiling_status = None)
-    PYMPLER = MemoryProfilerStateItem(id=3, command='pympler', profiling_status = None)
+    UNKNOWN = MemoryProfilerStateItem(id=-1, command='', profiling_status=None)
+    OFF = MemoryProfilerStateItem(id=0, command='off', profiling_status=False)
+    ON = MemoryProfilerStateItem(id=1, command='on', profiling_status=True)
+    ECHO = MemoryProfilerStateItem(id=2, command='echo', profiling_status=None)
+    PYMPLER = MemoryProfilerStateItem(id=3, command='pympler', profiling_status=None)
+    CACHE = MemoryProfilerStateItem(id=4, command='cache', profiling_status=None)
+    DEBUG = MemoryProfilerStateItem(id=5, command='debug', profiling_status=None)
 
 # memory profiler system configuration
 FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
@@ -110,6 +113,53 @@ def _process_fifo_input(_thread_log, config_fifo):
         _thread_log.info('Setting PYMPLER tracking for {} ==> {}'.format(params['endpoint'],
                                                                          params['persistence']))
         _set_pympler_profiling_value(params['endpoint'], params['persistence'])
+    elif state == MemoryProfilerState.CACHE:
+        _publish_cache_size()
+    elif state == MemoryProfilerState.DEBUG:
+        _thread_log.info('---------- DEBUGGING PROCESS ({}) ----------'.format(os.getpid()))
+        import rpdb
+        rpdb.set_trace()
+        _thread_log.info('---------- DEBUGGING COMPLETED ({}) ----------'.format(os.getpid()))
+
+
+def _publish_cache_size():
+    import gc
+    cache_factories = [c for c in gc.get_objects() if isinstance(c, CacheFactory)]
+    cached_objects = []
+    for cf in cache_factories:
+        cached_objects += cf.cache.values()
+    co_dict = {}
+    for co in cached_objects:
+        class_name = type(co).__name__
+        co_dict[class_name] = (class_name, 1, sys.getsizeof(co)) if class_name not in co_dict else \
+            (class_name,  co_dict[class_name][1] + 1, co_dict[class_name][2] + sys.getsizeof(co))
+    import operator
+    co_list_sorted = sorted(co_dict.values(), key=operator.itemgetter(1), reverse=True)
+    caches_summery_out = "Class Name\t|\tCount\t|\tSize\n"
+    total_size = 0
+    for co in co_list_sorted:
+        caches_summery_out += "{}\t|\t{}\t|\t{} B\n".format(*co)
+        total_size += co[2]
+
+    # all_objects = muppy.get_objects()
+    # caches = muppy.filter(all_objects, Type=CacheFactory)
+    # size_list = [summary.getsizeof(s) for s in caches]
+    # caches_summery = summary.summarize(caches)
+    # caches_summery_formatted = summary.format_(caches_summery)
+    # caches_summery_out = ''
+    # classes = {}
+    # for name in [t.__name__ for t in caches if isinstance(t, type)]:
+    #     classes[name] = 1 if name not in classes else classes[name]+1
+    # import operator
+    # classes = ["{}({})".format(*x) for x in sorted(classes.items(), key=operator.itemgetter(1)) if x[1] > 2]
+    # for s in caches_summery_formatted:
+    #     caches_summery_out += s + '\n'
+    thread_log.info("================ CACHED OBJECT SUMMARY ==============\n{}\n"
+                    # "----------------------------------------------------\n{}"
+                    "----------------------------------------------------\nTOTAL:\t{} KB".format(caches_summery_out,
+                                                                                                 # '\t'.join(classes),
+                                                                                                 total_size/1024))
+
 
 
 def _get_state_from_pipe_command(command):
@@ -124,12 +174,16 @@ def _get_state_from_pipe_command(command):
     if command_values[0].lower() not in [MemoryProfilerState.ON.value.command,
                                          MemoryProfilerState.OFF.value.command,
                                          MemoryProfilerState.ECHO.value.command,
-                                         MemoryProfilerState.PYMPLER.value.command]:
+                                         MemoryProfilerState.PYMPLER.value.command,
+                                         MemoryProfilerState.CACHE.value.command,
+                                         MemoryProfilerState.DEBUG.value.command]:
         return MemoryProfilerState.UNKNOWN, None
     return {MemoryProfilerState.ON.value.command: (MemoryProfilerState.ON, None),
             MemoryProfilerState.OFF.value.command: (MemoryProfilerState.OFF, None),
             MemoryProfilerState.ECHO.value.command: (MemoryProfilerState.ECHO, None),
-            MemoryProfilerState.PYMPLER.value.command: _parse_pympler_command(command_values)
+            MemoryProfilerState.PYMPLER.value.command: _parse_pympler_command(command_values),
+            MemoryProfilerState.CACHE.value.command: (MemoryProfilerState.CACHE, None),
+            MemoryProfilerState.DEBUG.value.command: (MemoryProfilerState.DEBUG, None)
             }[command_values[0].lower()]
 
 
