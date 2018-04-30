@@ -135,31 +135,52 @@ def _publish_cache_size():
             (class_name,  co_dict[class_name][1] + 1, co_dict[class_name][2] + sys.getsizeof(co))
     import operator
     co_list_sorted = sorted(co_dict.values(), key=operator.itemgetter(1), reverse=True)
-    caches_summery_out = "Class Name\t|\tCount\t|\tSize\n"
+    caches_summary_out = [['Class Name', 'Count', 'Size']]
     total_size = 0
     for co in co_list_sorted:
-        caches_summery_out += "{}\t|\t{}\t|\t{} B\n".format(*co)
+        caches_summary_out.append(['{}'.format(co[0]), '{}'.format(co[1]), '{} B'.format(co[2])])
         total_size += co[2]
 
-    # all_objects = muppy.get_objects()
-    # caches = muppy.filter(all_objects, Type=CacheFactory)
-    # size_list = [summary.getsizeof(s) for s in caches]
-    # caches_summery = summary.summarize(caches)
-    # caches_summery_formatted = summary.format_(caches_summery)
-    # caches_summery_out = ''
-    # classes = {}
-    # for name in [t.__name__ for t in caches if isinstance(t, type)]:
-    #     classes[name] = 1 if name not in classes else classes[name]+1
-    # import operator
-    # classes = ["{}({})".format(*x) for x in sorted(classes.items(), key=operator.itemgetter(1)) if x[1] > 2]
-    # for s in caches_summery_formatted:
-    #     caches_summery_out += s + '\n'
+    summary_lines = ''
+    for line in list(_format_table(caches_summary_out)):
+        summary_lines += line + '\n'
+
     thread_log.info("================ CACHED OBJECT SUMMARY ==============\n{}\n"
-                    # "----------------------------------------------------\n{}"
-                    "----------------------------------------------------\nTOTAL:\t{} KB".format(caches_summery_out,
-                                                                                                 # '\t'.join(classes),
+                    "----------------------------------------------------\nTOTAL:\t{} KB".format(summary_lines,
                                                                                                  total_size/1024))
 
+
+def _format_table(rows, header=True):
+    """Format a list of lists as a pretty table.
+    Keyword arguments:
+    header -- if True the first row is treated as a table header
+
+    originally inspired by http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/267662,
+    then taken verbatim from https://github.com/pympler/pympler/blob/master/pympler/summary.py
+    """
+    border = "="
+    # vertical delimiter
+    vdelim = " | "
+    # padding nr. of spaces are left around the longest element in the
+    # column
+    padding = 1
+    # may be left,center,right
+    justify = 'right'
+    justify = {'left': str.ljust,
+               'center': str.center,
+               'right': str.rjust}[justify.lower()]
+    # calculate column widths (longest item in each col
+    # plus "padding" nr of spaces on both sides)
+    cols = zip(*rows)
+    colWidths = [max([len(str(item)) + 2 * padding for item in col])
+                 for col in cols]
+    borderline = vdelim.join([w * border for w in colWidths])
+    for row in rows:
+        yield vdelim.join([justify(str(item), width)
+                           for (item, width) in zip(row, colWidths)])
+        if header:
+            yield borderline
+            header = False
 
 
 def _get_state_from_pipe_command(command):
