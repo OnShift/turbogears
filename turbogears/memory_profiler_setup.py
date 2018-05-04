@@ -140,22 +140,7 @@ def _publish_cache_size():
     for co in co_list_sorted:
         caches_summery_out += "{}\t|\t{}\t|\t{} B\n".format(*co)
         total_size += co[2]
-
-    # all_objects = muppy.get_objects()
-    # caches = muppy.filter(all_objects, Type=CacheFactory)
-    # size_list = [summary.getsizeof(s) for s in caches]
-    # caches_summery = summary.summarize(caches)
-    # caches_summery_formatted = summary.format_(caches_summery)
-    # caches_summery_out = ''
-    # classes = {}
-    # for name in [t.__name__ for t in caches if isinstance(t, type)]:
-    #     classes[name] = 1 if name not in classes else classes[name]+1
-    # import operator
-    # classes = ["{}({})".format(*x) for x in sorted(classes.items(), key=operator.itemgetter(1)) if x[1] > 2]
-    # for s in caches_summery_formatted:
-    #     caches_summery_out += s + '\n'
     thread_log.info("================ CACHED OBJECT SUMMARY ==============\n{}\n"
-                    # "----------------------------------------------------\n{}"
                     "----------------------------------------------------\nTOTAL:\t{} KB".format(caches_summery_out,
                                                                                                  # '\t'.join(classes),
                                                                                                  total_size/1024))
