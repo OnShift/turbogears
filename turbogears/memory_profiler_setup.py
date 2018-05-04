@@ -10,15 +10,18 @@ from pympler import summary, muppy
 from enum import Enum
 from collections import namedtuple
 from pympler_setup_helper import _is_pympler_profiling_value_on, _set_pympler_profiling_value, pympler_end_points
+from sqlobject.cache import CacheFactory
 
 MemoryProfilerStateItem = namedtuple('MemoryProfilerStateItem', ['id', 'command', 'profiling_status'])
 
 class MemoryProfilerState(Enum):
-    UNKNOWN = MemoryProfilerStateItem(id=-1, command='', profiling_status = None)
-    OFF = MemoryProfilerStateItem(id=0, command='off', profiling_status = False)
-    ON = MemoryProfilerStateItem(id=1, command='on', profiling_status = True)
-    ECHO = MemoryProfilerStateItem(id=2, command='echo', profiling_status = None)
-    PYMPLER = MemoryProfilerStateItem(id=3, command='pympler', profiling_status = None)
+    UNKNOWN = MemoryProfilerStateItem(id=-1, command='', profiling_status=None)
+    OFF = MemoryProfilerStateItem(id=0, command='off', profiling_status=False)
+    ON = MemoryProfilerStateItem(id=1, command='on', profiling_status=True)
+    ECHO = MemoryProfilerStateItem(id=2, command='echo', profiling_status=None)
+    PYMPLER = MemoryProfilerStateItem(id=3, command='pympler', profiling_status=None)
+    CACHE = MemoryProfilerStateItem(id=4, command='cache', profiling_status=None)
+    DEBUG = MemoryProfilerStateItem(id=5, command='debug', profiling_status=None)
 
 # memory profiler system configuration
 FLUENTD_HOST_NAME = os.environ.get('FLUENTD_HOST_NAME', 'fluentd')
@@ -110,6 +113,74 @@ def _process_fifo_input(_thread_log, config_fifo):
         _thread_log.info('Setting PYMPLER tracking for {} ==> {}'.format(params['endpoint'],
                                                                          params['persistence']))
         _set_pympler_profiling_value(params['endpoint'], params['persistence'])
+    elif state == MemoryProfilerState.CACHE:
+        _publish_cache_size()
+    elif state == MemoryProfilerState.DEBUG:
+        _thread_log.info('---------- DEBUGGING PROCESS ({}) ----------'.format(os.getpid()))
+        import rpdb
+        rpdb.set_trace()
+        _thread_log.info('---------- DEBUGGING COMPLETED ({}) ----------'.format(os.getpid()))
+
+
+def _publish_cache_size():
+    import gc
+    cache_factories = [c for c in gc.get_objects() if isinstance(c, CacheFactory)]
+    cached_objects = []
+    for cf in cache_factories:
+        cached_objects += cf.cache.values()
+    co_dict = {}
+    for co in cached_objects:
+        class_name = type(co).__name__
+        co_dict[class_name] = (class_name, 1, sys.getsizeof(co)) if class_name not in co_dict else \
+            (class_name,  co_dict[class_name][1] + 1, co_dict[class_name][2] + sys.getsizeof(co))
+    import operator
+    co_list_sorted = sorted(co_dict.values(), key=operator.itemgetter(1), reverse=True)
+    caches_summary_out = [['Class Name', 'Count', 'Size']]
+    total_size = 0
+    for co in co_list_sorted:
+        caches_summary_out.append(['{}'.format(co[0]), '{}'.format(co[1]), '{} B'.format(co[2])])
+        total_size += co[2]
+
+    summary_lines = ''
+    for line in list(_format_table(caches_summary_out)):
+        summary_lines += line + '\n'
+
+    thread_log.info("================ CACHED OBJECT SUMMARY ==============\n{}\n"
+                    "----------------------------------------------------\nTOTAL:\t{} KB".format(summary_lines,
+                                                                                                 total_size/1024))
+
+
+def _format_table(rows, header=True):
+    """Format a list of lists as a pretty table.
+    Keyword arguments:
+    header -- if True the first row is treated as a table header
+
+    originally inspired by http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/267662,
+    then taken verbatim from https://github.com/pympler/pympler/blob/master/pympler/summary.py
+    """
+    border = "="
+    # vertical delimiter
+    vdelim = " | "
+    # padding nr. of spaces are left around the longest element in the
+    # column
+    padding = 1
+    # may be left,center,right
+    justify = 'right'
+    justify = {'left': str.ljust,
+               'center': str.center,
+               'right': str.rjust}[justify.lower()]
+    # calculate column widths (longest item in each col
+    # plus "padding" nr of spaces on both sides)
+    cols = zip(*rows)
+    colWidths = [max([len(str(item)) + 2 * padding for item in col])
+                 for col in cols]
+    borderline = vdelim.join([w * border for w in colWidths])
+    for row in rows:
+        yield vdelim.join([justify(str(item), width)
+                           for (item, width) in zip(row, colWidths)])
+        if header:
+            yield borderline
+            header = False
 
 
 def _get_state_from_pipe_command(command):
@@ -124,12 +195,16 @@ def _get_state_from_pipe_command(command):
     if command_values[0].lower() not in [MemoryProfilerState.ON.value.command,
                                          MemoryProfilerState.OFF.value.command,
                                          MemoryProfilerState.ECHO.value.command,
-                                         MemoryProfilerState.PYMPLER.value.command]:
+                                         MemoryProfilerState.PYMPLER.value.command,
+                                         MemoryProfilerState.CACHE.value.command,
+                                         MemoryProfilerState.DEBUG.value.command]:
         return MemoryProfilerState.UNKNOWN, None
     return {MemoryProfilerState.ON.value.command: (MemoryProfilerState.ON, None),
             MemoryProfilerState.OFF.value.command: (MemoryProfilerState.OFF, None),
             MemoryProfilerState.ECHO.value.command: (MemoryProfilerState.ECHO, None),
-            MemoryProfilerState.PYMPLER.value.command: _parse_pympler_command(command_values)
+            MemoryProfilerState.PYMPLER.value.command: _parse_pympler_command(command_values),
+            MemoryProfilerState.CACHE.value.command: (MemoryProfilerState.CACHE, None),
+            MemoryProfilerState.DEBUG.value.command: (MemoryProfilerState.DEBUG, None)
             }[command_values[0].lower()]
 
 
