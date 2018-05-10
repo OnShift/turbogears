@@ -31,6 +31,7 @@ TURBOGEARS_PROFILER_FIFO_PATH = os.environ.get('TURBOGEARS_PROFILER_FIFO_PATH',
                                                '{}/turbogears_memory_profiler'.format(tempfile.gettempdir()))
 TURBOGEARS_PROFILER_FIFO_NAME = os.environ.get('TURBOGEARS_PROFILER_FIFO_NAME', 'turbogears_memory_config_fifo_{}')
 TURBOGEARS_PROFILER_LOG_TO_CONSOLE = os.environ.get('TURBOGEARS_PROFILER_LOG_TO_CONSOLE', 'False') == 'True'
+TURBOGEARS_PROFILER_ACTIVATE = os.environ.get('TURBOGEARS_PROFILER_ACTIVATE', 'False') == 'True'
 
 # setup thread log handler to monitor state of memory profile logging
 thread_log = logging.getLogger("memory_profiler_thread_log")
@@ -67,8 +68,6 @@ thread_log.info('turbogears memory profiler settings: FLUENTD_HOST_NAME={} FLUEN
                                                                TURBOGEARS_PROFILER_FIFO_NAME,
                                                                TURBOGEARS_PROFILER_LOG_TO_CONSOLE)
                 )
-
-
 
 
 def toggle_memory_profile_via_fifo(_thread_log):
@@ -224,6 +223,10 @@ def _parse_pympler_command(command_args):
 
 
 def create_config_thread(_thread_log):
+    if not TURBOGEARS_PROFILER_ACTIVATE:
+        _thread_log.info("TURBOGEARS_PROFILER deactivated, add TURBOGEARS_PROFILER_ACTIVATE=True "
+                         "to activate it in this environment.")
+        return None
     # start configuration pipe monitoring thread on import
     _config_thread = threading.Thread(target=toggle_memory_profile_via_fifo, args=(_thread_log,),
                                       name='toggle_memory_profile_via_fifo')
