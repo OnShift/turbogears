@@ -257,6 +257,10 @@ class MyRoot(controllers.RootController):
     def redirect_to_path_tuple(self, path):
         raise redirect((path, 'index'))
 
+    [expose()]
+    def redirect_error(self):
+        raise redirect('/blah\r\n')
+
 
 class TestRoot(unittest.TestCase):
 
@@ -711,6 +715,11 @@ class TestURLs(unittest.TestCase):
                 assert cherrypy.response.status.startswith("302"), url
                 assert (cherrypy.response.headers['Location']
                     == 'http://localhost/subthing/index'), url
+
+    def test_redirect_error(self):
+        url = "/redirect_error"
+        testutil.create_request(url)
+        assert cherrypy.response.status.startswith("500")
 
     def test_multi_values(self):
         testutil.create_request("/")
