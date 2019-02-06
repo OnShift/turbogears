@@ -259,7 +259,7 @@ class MyRoot(controllers.RootController):
 
     [expose()]
     def redirect_error(self):
-        raise redirect('/blah\r\n')
+        raise redirect('/foo\r\n')
 
 
 class TestRoot(unittest.TestCase):
