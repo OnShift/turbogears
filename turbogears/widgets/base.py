@@ -276,6 +276,8 @@ class Widget(object):
 
         if not params.get('name'):
             params['name'] = self.name
+        if 'assume_encoding' not in params:
+            params['assume_encoding'] = config.get('kid.assume_encoding', 'utf-8')
         params['value'] = to_unicode(self.adjust_value(value, **params))
         self.update_params(params)
         # update_data has been deprecated
