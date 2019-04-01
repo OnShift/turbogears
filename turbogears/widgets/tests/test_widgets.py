@@ -1,3 +1,4 @@
+# coding=utf-8
 import itertools
 
 import cherrypy
@@ -691,3 +692,14 @@ def test_selectfield_with_with_non_iterable_option_elements():
     assert '<option selected="selected" value="python">' in output
     assert '<option value="java">' in output
     assert '<option value="pascal">' in output
+
+
+def test_widget_with_nonascii_characters():
+    class MyWidget(widgets.Widget):
+        template = """<div>${my_param}</div>"""
+        params = ['my_param']
+
+    my_param = 'é'
+    element = MyWidget().display(my_param=my_param)
+    assert element.tag == u'div'
+    assert element.text == u'é'
